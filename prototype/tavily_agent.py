@@ -24,7 +24,7 @@ def web_search(query: str):
     """
     response = client.search(
         query=query,
-        max_results=2,
+        max_results=3,
         time_range="week",
         include_answer="basic"
     )
@@ -50,5 +50,5 @@ agent = create_conversational_retrieval_agent(
 )
 
 #Example usage
-result = agent.invoke("What is the latest news about Nvidia?")
+result = agent.invoke("web_search with query'how is the Nvidia's performance in 2024?'")
 print(result)
