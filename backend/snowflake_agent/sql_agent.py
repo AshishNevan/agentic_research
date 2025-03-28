@@ -24,7 +24,7 @@ Consider the following:
 - If the user's question is not related to the database, respond with "NOT_RELEVANT".
 - Provide explanations for any assumptions made during query generation.
 - Always try to keep the original row/column names in the result.
-
+- The table name is "nvidia_valuation_measures"
 Generate the SQL query for the following question:
 """
 

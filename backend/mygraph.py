@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 from snowflake_agent.sql_agent import SnowflakeAgent
 from langchain_core.tools import BaseTool, Tool
 
-load_dotenv()
+load_dotenv("../.env")
 client = TavilyClient(os.getenv("TAVILY_API_KEY"))
 
 
@@ -64,7 +64,7 @@ def search_pinecone(
     query: str,
     year: Optional[str] = None,
     quarter: Optional[str] = None,
-    top_k: int = 5,
+    top_k: int = 2,
 ) -> str:
     """
     Search Pinecone for documents matching the query, optionally filtered by year and quarter.
@@ -150,7 +150,6 @@ def snowflake_tool(query: str):
     """
     Executes SQL queries and generates visualizations using Snowflake database.
     """
-    snowflake_agent = SnowflakeAgent(os.environ.get("SNOWFLAKE_URI"))
     result = snowflake_agent.generate_query_result(query)
 
     # Check if visualization is needed
@@ -179,16 +178,16 @@ def final_answer(
     - `research_steps`: a few bullet points explaining the steps that were taken
     to research your report.
     - `main_body`: this is where the bulk of high quality and concise
-    information that answers the user's question belongs. It is 3-4 paragraphs
+    information that answers the user's question belongs. It is 5-6 paragraphs
     long in length.
     - `conclusion`: this is a short single paragraph conclusion providing a
     concise but sophisticated view on what was found.
     - `sources`: a bulletpoint list provided detailed sources for all information
     referenced during the research process
     """
-    if type(research_steps) is list:
+    if isinstance(research_steps, list):
         research_steps = "\n".join([f"- {r}" for r in research_steps])
-    if type(sources) is list:
+    if isinstance(sources, list):
         sources = "\n".join([f"- {s}" for s in sources])
     return ""
 
@@ -202,9 +201,9 @@ query, do NOT use that same tool with the same query again. Also, do NOT use
 any tool more than twice (ie, if the tool appears in the scratchpad twice, do
 not use it again).
 
-You should aim to collect information from a diverse range of sources before
-providing the answer to the user. Once you have collected plenty of information
-to answer the user's question (stored in the scratchpad) use the final_answer
+You should aim to run all the tools at least once to extract as much information as possible.
+Once you have collected plenty of information
+to answer the user's question in great detail(stored in the scratchpad) use the final_answer
 tool."""
 
 prompt = ChatPromptTemplate.from_messages(
@@ -232,7 +231,12 @@ llm = ChatOpenAI(
     api_key=SecretStr(os.environ["OPENAI_API_KEY"]),
 )
 
-tools: list[BaseTool] = [search_pinecone, web_search, final_answer, snowflake_tool]
+tools: list[BaseTool] = [
+    web_search,
+    snowflake_tool,
+    search_pinecone,
+    final_answer,
+]
 
 
 oracle = (
@@ -377,8 +381,8 @@ def invoke_graph(input: str):
     graph.add_edge("final_answer", END)
 
     runnable = graph.compile()
-    with open("graph.md", "w") as f:
-        f.write(runnable.get_graph().draw_mermaid())
+    # with open("graph.md", "w") as f:
+    #     f.write(runnable.get_graph().draw_mermaid())
 
     oracle_out = runnable.invoke(
         {
