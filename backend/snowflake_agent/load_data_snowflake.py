@@ -55,13 +55,17 @@ def upload_to_snowflake(df, table_name):
     drop_table_sql = f"DROP TABLE IF EXISTS {table_name}"
     cursor.execute(drop_table_sql)
 
+    # Create table with transformed structure
+    numeric_cols = df.columns.difference(['YEAR', 'QUARTER'])
     create_table_sql = f"""CREATE TABLE {table_name} (
-    {', '.join([f'{col} VARCHAR(50)' if col == 'METRICS' else f'{col} FLOAT' for col in cols])}
+        YEAR VARCHAR(4),
+        QUARTER VARCHAR(1),
+        {', '.join([f'"{col}" FLOAT' for col in numeric_cols])}
     )"""
 
     print(f"Creating table with SQL:\n{create_table_sql}")
     cursor.execute(create_table_sql)
-    print(f"DataFrame columns: {cols}")
+    print(f"DataFrame columns: {numeric_cols.tolist()}")
     
     success, num_chunks, num_rows, output = write_pandas(
         conn=conn,
@@ -90,6 +94,28 @@ if __name__ == "__main__":
     # Convert date columns to year_Q format and prefix with 'Q'
     new_columns = ["METRICS"] + [f"Y{convert_date_to_quarter(col)}" for col in nvidia_data.columns[1:]]
     nvidia_data.columns = new_columns
+
+    # Melt the DataFrame to create year_quarter rows
+    nvidia_data = nvidia_data.melt(id_vars=['METRICS'], var_name='YEAR_QUARTER', value_name='VALUE')
+    
+    # Extract year and quarter from YEAR_QUARTER column
+    nvidia_data[['YEAR', 'QUARTER']] = nvidia_data['YEAR_QUARTER'].str.extract(r'Y(\d+)_Q(\d+)')
+    
+    # Pivot metrics into columns
+    nvidia_data = nvidia_data.pivot_table(
+        index=['YEAR', 'QUARTER'],
+        columns='METRICS',
+        values='VALUE',
+        aggfunc='first'
+    ).reset_index()
+
+    # Clean up column names
+    nvidia_data.columns.name = None
+    nvidia_data = nvidia_data.rename_axis(None, axis=1)
+
+    # Convert numeric columns to float
+    numeric_cols = nvidia_data.columns.difference(['YEAR', 'QUARTER'])
+    nvidia_data[numeric_cols] = nvidia_data[numeric_cols].astype(float)
 
     print(nvidia_data)
     # Upload the DataFrame to Snowflake
