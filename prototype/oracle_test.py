@@ -9,6 +9,8 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from tavily import TavilyClient
 from pinecone import Pinecone
 from langgraph.graph import StateGraph, END
+import re
+from typing import Optional, Tuple
 from dotenv import load_dotenv
 load_dotenv()
 client = TavilyClient(os.getenv("TAVILY_API_KEY"))
@@ -148,7 +150,12 @@ not use it again).
 You should aim to collect information from a diverse range of sources before
 providing the answer to the user. Once you have collected plenty of information
 to answer the user's question (stored in the scratchpad) use the final_answer
-tool."""
+tool.
+
+Always include links and document metadata as bullet-pointed sources in the final report.
+If you did not find the relevant answer from any tool, mention that too.
+
+"""
 
 prompt = ChatPromptTemplate.from_messages([
     ("system", system_prompt),
@@ -184,21 +191,52 @@ oracle = (
     | llm.bind_tools(tools, tool_choice="any")
 )
 
-inputs = {
-    "input": "tell me something interesting about dogs",
-    "chat_history": [],
-    "intermediate_steps": [],
-}
-out = oracle.invoke(inputs)
-print(out)
+# inputs = {
+#     "input": "tell me something interesting about dogs",
+#     "chat_history": [],
+#     "intermediate_steps": [],
+# }
+# out = oracle.invoke(inputs)
+# print(out)
+
+
+def extract_year_quarter(query: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Extract year and quarter from a natural language query.
+    Returns (year, quarter) or (None, None) if not found.
+    """
+    query = query.lower()
+
+    # Match quarter (Q1, Q2, Q3, Q4)
+    quarter_match = re.search(r"\b(q[1-4])\b", query)
+
+    # Match 4-digit year (2022–2029)
+    year_match = re.search(r"\b(20[2-9][0-9])\b", query)
+
+    quarter = quarter_match.group(1).upper() if quarter_match else None
+    year = year_match.group(1) if year_match else None
+
+    return year, quarter
+
+
 
 
 def run_oracle(state: list):
     print("run_oracle")
     print(f"intermediate_steps: {state['intermediate_steps']}")
+
+    user_query = state["input"]
+
+    # Extract year and quarter from the query
+    year, quarter = extract_year_quarter(user_query)
     out = oracle.invoke(state)
     tool_name = out.tool_calls[0]["name"]
     tool_args = out.tool_calls[0]["args"]
+    if tool_name == "search_pinecone":
+        if "year" not in tool_args and year:
+            tool_args["year"] = year
+        if "quarter" not in tool_args and quarter:
+            tool_args["quarter"] = quarter
     action_out = AgentAction(
         tool=tool_name,
         tool_input=tool_args,
@@ -239,34 +277,41 @@ def run_tool(state: list):
     return {"intermediate_steps": [action_out]}
 
 
-graph = StateGraph(AgentState)
+def compile_graph():
+    graph = StateGraph(AgentState)
 
-graph.add_node("oracle", run_oracle)
-graph.add_node("search_pinecone", run_tool)
-graph.add_node("web_search", run_tool)
-graph.add_node("final_answer", run_tool)
+    graph.add_node("oracle", run_oracle)
+    graph.add_node("search_pinecone", run_tool)
+    graph.add_node("web_search", run_tool)
+    graph.add_node("final_answer", run_tool)
 
-graph.set_entry_point("oracle")
+    graph.set_entry_point("oracle")
 
-graph.add_conditional_edges(
-    source="oracle",  # where in graph to start
-    path=router,  # function to determine which node is called
-)
+    graph.add_conditional_edges(
+        source="oracle",
+        path=router,
+    )
 
-# create edges from each tool back to the oracle
-for tool_obj in tools:
-    if tool_obj.name != "final_answer":
-        graph.add_edge(tool_obj.name, "oracle")
+    for tool_obj in tools:
+        if tool_obj.name != "final_answer":
+            graph.add_edge(tool_obj.name, "oracle")
 
-# if anything goes to final answer, it must then move to END
-graph.add_edge("final_answer", END)
+    graph.add_edge("final_answer", END)
+    return graph.compile()
 
-runnable = graph.compile()
+def run_oracle_query(query: str, chat_history: list = []):
+    runnable = compile_graph()
+    result = runnable.invoke({
+        "input": query,
+        "chat_history": chat_history,
+        "intermediate_steps": [],
+    })
+    final_step = result["intermediate_steps"][-1]
+    final_input = final_step.tool_input if isinstance(final_step, AgentAction) else {}
+    return build_report(output=final_input)
 
-oracle_out = runnable.invoke({
-    "input": "write a report about the CEO of Nvidia",
-    "chat_history": [],
-})
+
+
 #print(out)
 
 def build_report(output: dict):
@@ -298,6 +343,7 @@ SOURCES
 {sources}
 """
 
-print(build_report(
-    output=oracle_out["intermediate_steps"][-1].tool_input
-))
+# if __name__ == "__main__":
+#     response = run_oracle_query("what is the revenue of Nvidia in 2024?")
+#     print(response)
+
