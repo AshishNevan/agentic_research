@@ -6,3 +6,4 @@ langsmith
 sentence_transformers
 langchain-huggingface
 langchain-pinecone
+markdown

@@ -47,25 +47,25 @@ def search_pinecone(query: str, year: str = None, quarter: str = None, top_k: in
         filter=filter_dict if filter_dict else None
     )
 
-    print(f"Raw Pinecone response: {response}")  #for debugging. can be commented out in final
+    #print(f"Raw Pinecone response: {response}")  #for debugging. can be commented out in final
 
     matches = response.get("matches", [])
     if not matches:
         return "No relevant documents found in Pinecone."
 
     context = format_rag_contexts(matches)
-    print(f"Formatted context:\n{context}\n")  #for debugging. can be commented out in final
+    #print(f"Formatted context:\n{context}\n")  #for debugging. can be commented out in final
     return context
 
 
 llm = ChatOpenAI(model_name="gpt-4o", temperature=0)
 
-agent = create_conversational_retrieval_agent(
+pinecone_agent = create_conversational_retrieval_agent(
     llm,
     tools=[search_pinecone],
     verbose=True
 )
 
-result = agent.invoke("search_pinecone with query='how is the Nvidia's performance in 2024?', top_k=5, year='', quarter=''")
+# result = agent.invoke("search_pinecone with query='how is the Nvidia's performance in 2024?', top_k=5, year='', quarter=''")
 
-print(f"result-{result}\n")
+# print(f"result-{result}\n")

@@ -39,16 +39,14 @@ def web_search(query: str):
 
 
 llm = ChatOpenAI(model_name="gpt-4o", temperature=0)
-#search = TavilySearchAPIWrapper()
-#tavily_tool = TavilySearchResults(api_wrapper=search)
 
-# Set up the agent
-agent = create_conversational_retrieval_agent(
+tavily_agent = create_conversational_retrieval_agent(
     llm,
     tools=[web_search],
     verbose=True
 )
 
-#Example usage
-result = agent.invoke("web_search with query'how is the Nvidia's performance in 2024?'")
-print(result)
+
+# #Example usage
+# result = tavily_agent.invoke("web_search with query'how is the Nvidia's performance in 2024?'")
+# print(result)
