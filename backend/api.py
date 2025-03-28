@@ -14,6 +14,9 @@ app.mount("/static", StaticFiles(directory="./static"), name="static")
 
 class ChatRequest(BaseModel):
     message: str
+    active_agents: list[str]
+    year: str
+    quarter: str
 
 
 class ChatResponse(BaseModel):
@@ -29,7 +32,9 @@ async def root():
 @app.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest):
     # Get the response from the graph
-    out, viz = invoke_graph(request.message)
+    out, viz = invoke_graph(
+        f"{request.message} for Year: {request.year} and Quarter: {request.quarter}"
+    )
     report = build_report(out)
     print("report: ", report)
     print("viz: ", len(viz))
