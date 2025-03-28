@@ -1,6 +1,6 @@
 import os
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from typing import TypedDict, Annotated, List, Union
+from typing import Optional, TypedDict, Annotated, List, Union
 from langchain_core.agents import AgentAction, AgentFinish
 from langchain_core.messages import BaseMessage
 import operator
@@ -10,13 +10,16 @@ from tavily import TavilyClient
 from pinecone import Pinecone
 from langgraph.graph import StateGraph, END
 from dotenv import load_dotenv
+
 load_dotenv()
 client = TavilyClient(os.getenv("TAVILY_API_KEY"))
+
 
 class AgentState(TypedDict):
     input: str
     chat_history: list[BaseMessage]
     intermediate_steps: Annotated[list[tuple[AgentAction, str]], operator.add]
+
 
 # define a function to transform intermediate_steps from list
 # of AgentAction to scratchpad string
@@ -38,6 +41,7 @@ pc = Pinecone(api_key=pinecone_api_key)
 index = pc.Index("document-embeddings-v2")
 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
+
 # Utility function to format Pinecone results
 def format_rag_contexts(matches: list):
     contexts = []
@@ -50,8 +54,14 @@ def format_rag_contexts(matches: list):
         contexts.append(text)
     return "\n---\n".join(contexts)
 
+
 @tool("search_pinecone")
-def search_pinecone(query: str, year: str = None, quarter: str = None, top_k: int = 5) -> str:
+def search_pinecone(
+    query: str,
+    year: Optional[str] = None,
+    quarter: Optional[str] = None,
+    top_k: int = 5,
+) -> str:
     """
     Search Pinecone for documents matching the query, optionally filtered by year and quarter.
     """
@@ -69,18 +79,23 @@ def search_pinecone(query: str, year: str = None, quarter: str = None, top_k: in
         vector=query_emb,
         top_k=top_k,
         include_metadata=True,
-        filter=filter_dict if filter_dict else None
+        filter=filter_dict if filter_dict else None,
     )
 
-    print(f"Raw Pinecone response: {response}")  #for debugging. can be commented out in final
+    print(
+        f"Raw Pinecone response: {response}"
+    )  # for debugging. can be commented out in final
 
     matches = response.get("matches", [])
     if not matches:
         return "No relevant documents found in Pinecone."
 
     context = format_rag_contexts(matches)
-    print(f"Formatted context:\n{context}\n")  #for debugging. can be commented out in final
+    print(
+        f"Formatted context:\n{context}\n"
+    )  # for debugging. can be commented out in final
     return context
+
 
 @tool("web_search")
 def web_search(query: str):
@@ -94,17 +109,14 @@ def web_search(query: str):
     str: A formatted string containing the titles, URLs, and content of search results.
     """
     response = client.search(
-        query=query,
-        max_results=3,
-        time_range="week",
-        include_answer="basic"
+        query=query, max_results=3, time_range="week", include_answer="basic"
     )
 
-
-    results = response['results']
+    results = response["results"]
     web_agent_contexts = "\n---\n".join(
-        ["\n".join([x["title"], x["url"], x["content"]]) for x in results]  )
-    
+        ["\n".join([x["title"], x["url"], x["content"]]) for x in results]
+    )
+
     return web_agent_contexts
 
 
@@ -114,7 +126,7 @@ def final_answer(
     research_steps: str,
     main_body: str,
     conclusion: str,
-    sources: str
+    sources: str,
 ):
     """Returns a natural language response to the user in the form of a research
     report. There are several sections to this report, those are:
@@ -136,6 +148,7 @@ def final_answer(
         sources = "\n".join([f"- {s}" for s in sources])
     return ""
 
+
 system_prompt = """You are the oracle, the great AI decision maker.
 Given the user's query you must decide what to do with it based on the
 list of tools provided to you.
@@ -150,26 +163,24 @@ providing the answer to the user. Once you have collected plenty of information
 to answer the user's question (stored in the scratchpad) use the final_answer
 tool."""
 
-prompt = ChatPromptTemplate.from_messages([
-    ("system", system_prompt),
-    MessagesPlaceholder(variable_name="chat_history"),
-    ("user", "{input}"),
-    ("assistant", "scratchpad: {scratchpad}"),
-])
+prompt = ChatPromptTemplate.from_messages(
+    [
+        ("system", system_prompt),
+        MessagesPlaceholder(variable_name="chat_history"),
+        ("user", "{input}"),
+        ("assistant", "scratchpad: {scratchpad}"),
+    ]
+)
 
 from langchain_core.messages import ToolCall, ToolMessage
 from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 
-llm = ChatOpenAI(
-    model="gpt-4o",
-    temperature=0
+llm = ChatGoogleGenerativeAI(
+    model="gemini-2.0-flash", api_key=os.environ["GEMINI_API_KEY"]
 )
 
-tools=[
-    search_pinecone,
-    web_search,
-    final_answer
-]
+tools = [search_pinecone, query_snowflake, web_search, final_answer]
 
 
 oracle = (
@@ -199,14 +210,9 @@ def run_oracle(state: list):
     out = oracle.invoke(state)
     tool_name = out.tool_calls[0]["name"]
     tool_args = out.tool_calls[0]["args"]
-    action_out = AgentAction(
-        tool=tool_name,
-        tool_input=tool_args,
-        log="TBD"
-    )
-    return {
-        "intermediate_steps": [action_out]
-    }
+    action_out = AgentAction(tool=tool_name, tool_input=tool_args, log="TBD")
+    return {"intermediate_steps": [action_out]}
+
 
 def router(state: list):
     # return the tool name to use
@@ -219,10 +225,11 @@ def router(state: list):
 
 
 tool_str_to_func = {
-    "search_pinecone":search_pinecone,
+    "search_pinecone": search_pinecone,
     "web_search": web_search,
-    "final_answer": final_answer
+    "final_answer": final_answer,
 }
+
 
 def run_tool(state: list):
     # use this as helper function so we repeat less code
@@ -231,11 +238,7 @@ def run_tool(state: list):
     print(f"{tool_name}.invoke(input={tool_args})")
     # run tool
     out = tool_str_to_func[tool_name].invoke(input=tool_args)
-    action_out = AgentAction(
-        tool=tool_name,
-        tool_input=tool_args,
-        log=str(out)
-    )
+    action_out = AgentAction(tool=tool_name, tool_input=tool_args, log=str(out))
     return {"intermediate_steps": [action_out]}
 
 
@@ -263,11 +266,14 @@ graph.add_edge("final_answer", END)
 
 runnable = graph.compile()
 
-oracle_out = runnable.invoke({
-    "input": "write a report about the CEO of Nvidia",
-    "chat_history": [],
-})
-#print(out)
+oracle_out = runnable.invoke(
+    {
+        "input": "Write a report on risks faced by Nvidia in last few quarters",
+        "chat_history": [],
+    }
+)
+# print(out)
+
 
 def build_report(output: dict):
     research_steps = output["research_steps"]
@@ -298,6 +304,5 @@ SOURCES
 {sources}
 """
 
-print(build_report(
-    output=oracle_out["intermediate_steps"][-1].tool_input
-))
+
+print(build_report(output=oracle_out["intermediate_steps"][-1].tool_input))
