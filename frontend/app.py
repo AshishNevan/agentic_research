@@ -64,11 +64,21 @@ with st.sidebar:
         st.session_state.quarter = ""
 
     st.session_state.year = st.selectbox(
-        "Fiscal Year", options=["2022", "2023", "2024", "2025"], index=1
+        "Fiscal Year", options=["None", "2022", "2023", "2024", "2025"], index=1
     )
-    st.session_state.quarter = st.selectbox(
-        "Fiscal Quarter", options=["1", "2", "3", "4"], index=0
-    )
+    if st.session_state.year == "None":
+        st.session_state.quarter = st.selectbox(
+            "Fiscal Quarter",
+            options=["None", "1", "2", "3", "4"],
+            index=0,
+            disabled=True,
+        )
+    else:
+        st.session_state.quarter = st.selectbox(
+            "Fiscal Quarter",
+            options=["None", "1", "2", "3", "4"],
+            index=0,
+        )
 
     if st.button("Clear Conversation"):
         st.session_state.messages = []
@@ -137,15 +147,27 @@ if len(active_agent_names) > 0:
                 try:
                     response = requests.post(
                         f"{FASTAPI_URL}/chat",
-                        json={
+                        params={
                             "message": prompt,
-                            "active_agents": [
-                                key
-                                for key, val in st.session_state.active_agents.items()
-                                if val
+                            "snowflake_agent": st.session_state.active_agents[
+                                "snowflake_agent"
                             ],
-                            "year": st.session_state.year,
-                            "quarter": st.session_state.quarter,
+                            "pinecone_agent": st.session_state.active_agents[
+                                "rag_agent"
+                            ],
+                            "websearch_agent": st.session_state.active_agents[
+                                "web_search_agent"
+                            ],
+                            "year": (
+                                None
+                                if st.session_state.year == "None"
+                                else int(st.session_state.year)
+                            ),
+                            "quarter": (
+                                None
+                                if st.session_state.quarter == "None"
+                                else int(st.session_state.quarter)
+                            ),
                         },
                         timeout=120,  # Increased timeout for complex queries
                     )
