@@ -9,6 +9,7 @@ app = FastAPI()
 
 class ChatRequest(BaseModel):
     message: str
+    active_agents: list[str]
 
 
 @app.get("/")
