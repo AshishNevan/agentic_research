@@ -8,9 +8,9 @@ from matplotlib import pyplot as plt
 import os
 import re
 
-from LLMManager import LLMManager
+from snowflake_agent.LLMManager import LLMManager
 
-load_dotenv()
+load_dotenv("../../.env")
 
 # Generate a query based on user input
 PROMPT = """
@@ -26,24 +26,31 @@ Consider the following:
 Generate the SQL query for the following question:
 """
 
+
 class SnowflakeAgent:
-    def __init__(self, db_uri, model_provider="openai", model_name="gpt-3.5-turbo", temperature=0):
+    def __init__(
+        self, db_uri, model_provider="openai", model_name="gpt-3.5-turbo", temperature=0
+    ):
         self.db = SQLDatabase.from_uri(db_uri)
 
         if not os.environ.get("OPENAI_API_KEY"):
             raise ValueError("OPENAI_API_KEY is not set in the environment variables.")
 
-        self.llm = init_chat_model(model_name, model_provider=model_provider, temperature=temperature)
+        self.llm = init_chat_model(
+            model_name, model_provider=model_provider, temperature=temperature
+        )
         self.agent_executor = create_sql_agent(
             llm=self.llm,
             db=self.db,
             agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-            verbose=True
+            verbose=True,
         )
         self.llm_manager = LLMManager()
 
     def generate_query_result(self, user_query):
-        result = self.agent_executor.invoke({"input": f"System:{PROMPT}, Question:{user_query}"})
+        result = self.agent_executor.invoke(
+            {"input": f"System:{PROMPT}, Question:{user_query}"}
+        )
         return result
 
     def choose_visualization(self, user_query, results):
@@ -51,13 +58,22 @@ class SnowflakeAgent:
         Choose a visualization type based on the returned results
         """
         # results = self.generate_query_result(user_query)
-        if results == 'NOT_ENOUGH_INFO':
-            return {'visualization': None, 'visualization_reasoning': 'Not enough information to generate a visualization.'}
-        if results == 'NOT_RELEVANT':
-            return {'visualization': None, 'visualization_reasoning': 'No visualization needed for an irrelevant question.'}
-        
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", '''
+        if results == "NOT_ENOUGH_INFO":
+            return {
+                "visualization": None,
+                "visualization_reasoning": "Not enough information to generate a visualization.",
+            }
+        if results == "NOT_RELEVANT":
+            return {
+                "visualization": None,
+                "visualization_reasoning": "No visualization needed for an irrelevant question.",
+            }
+
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """
 You are an AI assistant that recommends appropriate data visualizations. Based on the user's question, SQL query, and query results, suggest the most suitable type of graph or chart to visualize the data. If no visualization is appropriate, indicate that.
 
 Available chart types and their use cases:
@@ -82,20 +98,27 @@ Consider these types of questions when recommending a visualization:
 Provide your response in the following format:
 Recommended Visualization: [Chart type or "None"]. ONLY use the following names: bar, horizontal_bar, line, pie, scatter, area, bubble, none
 Reason: [Brief explanation for your recommendation]
-'''),
-            ("human", '''
+""",
+                ),
+                (
+                    "human",
+                    """
 User question: {user_query}
 Query results: {results}
 
-Recommend a visualization:'''),
-        ])
+Recommend a visualization:""",
+                ),
+            ]
+        )
 
-        response = self.llm_manager.invoke(prompt, user_query=user_query, results=results)
-        lines = response.split('\n')
-        visualization = lines[0].split(':')[1].strip().lower()
-        reasoning = lines[1].split(':')[1].strip()
+        response = self.llm_manager.invoke(
+            prompt, user_query=user_query, results=results
+        )
+        lines = response.split("\n")
+        visualization = lines[0].split(":")[1].strip().lower()
+        reasoning = lines[1].split(":")[1].strip()
 
-        return {'visualization': visualization, 'visualization_reasoning': reasoning}
+        return {"visualization": visualization, "visualization_reasoning": reasoning}
 
     def generate_visualization_code(self, user_query):
         """
@@ -103,11 +126,17 @@ Recommend a visualization:'''),
         """
         results = self.generate_query_result(user_query)
         visualization_info = self.choose_visualization(user_query, results)
-        if visualization_info['visualization'] == 'none':
-            return {'visualization_code': None, 'visualization_reasoning': 'No visualization needed for an irrelevant question.'}
+        if visualization_info["visualization"] == "none":
+            return {
+                "visualization_code": None,
+                "visualization_reasoning": "No visualization needed for an irrelevant question.",
+            }
 
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", '''
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """
             Generate Python code using matplotlib to create a {visualization_type} chart for the following data:
     {results}
     
@@ -120,24 +149,42 @@ Recommend a visualization:'''),
     6. Do not wrap the code in triple backticks or any other formatting
     7. Use plt.savefig() to save the image as a PNG file in the current directory
     8. Do not include plt.show() in the code
-    '''),
-            ("human", '''
+    """,
+                ),
+                (
+                    "human",
+                    """
             Data: {results}
             Visualization type: {visualization_type}
             Generate Python code:
-            '''),
-        ])
+            """,
+                ),
+            ]
+        )
 
-        response = self.llm_manager.invoke(prompt, results=results, visualization_type=visualization_info['visualization'])
+        response = self.llm_manager.invoke(
+            prompt,
+            results=results,
+            visualization_type=visualization_info["visualization"],
+        )
         # Sanitize any remaining markdown formatting
-        lines = response.split('\n')
-        filtered_lines = [line for line in lines if line.strip() not in ('```python', '```') and 'plt.show()' not in line]
-        sanitized_code = '\n'.join(filtered_lines)
-        return {'visualization_code': sanitized_code, 'visualization_reasoning': visualization_info['visualization_reasoning']}
+        lines = response.split("\n")
+        filtered_lines = [
+            line
+            for line in lines
+            if line.strip() not in ("```python", "```") and "plt.show()" not in line
+        ]
+        sanitized_code = "\n".join(filtered_lines)
+        return {
+            "visualization_code": sanitized_code,
+            "visualization_reasoning": visualization_info["visualization_reasoning"],
+        }
+
 
 # Create an instance of SnowflakeAgent
-agent = SnowflakeAgent(os.environ.get('SNOWFLAKE_URI'))
-query = "How is the P/E ratio trending over the past 4 quarters?"
-generated_code = agent.generate_visualization_code(query)['visualization_code']
-print(generated_code)
-exec(generated_code)
+if __name__ == "__main__":
+    agent = SnowflakeAgent(os.environ.get("SNOWFLAKE_URI"))
+    query = "How is the P/E ratio trending over the past 4 quarters?"
+    generated_code = agent.generate_visualization_code(query)["visualization_code"]
+    print(generated_code)
+    exec(generated_code)

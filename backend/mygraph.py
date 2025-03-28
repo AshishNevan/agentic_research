@@ -1,6 +1,6 @@
 import os
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from typing import Optional, TypedDict, Annotated, List, Union
+from typing_extensions import Optional, TypedDict, Annotated, List, Union
 from langchain_core.agents import AgentAction, AgentFinish
 from langchain_core.messages import BaseMessage
 import operator
@@ -10,6 +10,8 @@ from tavily import TavilyClient
 from pinecone import Pinecone
 from langgraph.graph import StateGraph, END
 from dotenv import load_dotenv
+from snowflake_agent.sql_agent import SnowflakeAgent
+from langchain_core.tools import BaseTool, Tool
 
 load_dotenv()
 client = TavilyClient(os.getenv("TAVILY_API_KEY"))
@@ -18,6 +20,8 @@ client = TavilyClient(os.getenv("TAVILY_API_KEY"))
 class AgentState(TypedDict):
     input: str
     chat_history: list[BaseMessage]
+    visualization_code: str
+    snowflake_result: str
     intermediate_steps: Annotated[list[tuple[AgentAction, str]], operator.add]
 
 
@@ -120,6 +124,46 @@ def web_search(query: str):
     return web_agent_contexts
 
 
+snowflake_agent = SnowflakeAgent(os.environ.get("SNOWFLAKE_URI"))
+
+
+def snowflake_node(state: AgentState):
+    # Extract the query from the state
+    query = state["input"]
+
+    # Generate query result
+    result = snowflake_agent.generate_query_result(query)
+
+    # Optionally, generate visualization code
+    visualization_info = snowflake_agent.choose_visualization(query, result)
+    if visualization_info["visualization"] != "none":
+        visualization_code = snowflake_agent.generate_visualization_code(query)
+        state["visualization_code"] = visualization_code
+
+    # Update the state with the result
+    state["snowflake_result"] = result
+    return state
+
+
+@tool("snowflake_agent")
+def snowflake_tool(query: str):
+    """
+    Executes SQL queries and generates visualizations using Snowflake database.
+    """
+    snowflake_agent = SnowflakeAgent(os.environ.get("SNOWFLAKE_URI"))
+    result = snowflake_agent.generate_query_result(query)
+
+    # Check if visualization is needed
+    visualization_info = snowflake_agent.choose_visualization(query, result)
+    if visualization_info["visualization"] != "none":
+        visualization_code = snowflake_agent.generate_visualization_code(query)[
+            "visualization_code"
+        ]
+        result = f"{result}\n\nVisualization Code:\n{visualization_code}"
+
+    return result
+
+
 @tool("final_answer")
 def final_answer(
     introduction: str,
@@ -175,12 +219,20 @@ prompt = ChatPromptTemplate.from_messages(
 from langchain_core.messages import ToolCall, ToolMessage
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
+from pydantic import SecretStr
 
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash", api_key=os.environ["GEMINI_API_KEY"]
+# from snowflake_agent.sql_agent import SnowflakeAgent
+
+# llm = ChatGoogleGenerativeAI(
+#     model="gemini-2.0-flash",
+#     api_key=SecretStr(os.environ["GEMINI_API_KEY"]),
+# )
+llm = ChatOpenAI(
+    model="gpt-3.5-turbo",
+    api_key=SecretStr(os.environ["OPENAI_API_KEY"]),
 )
 
-tools = [search_pinecone, query_snowflake, web_search, final_answer]
+tools: list[BaseTool] = [search_pinecone, web_search, final_answer, snowflake_tool]
 
 
 oracle = (
@@ -195,32 +247,89 @@ oracle = (
     | llm.bind_tools(tools, tool_choice="any")
 )
 
-inputs = {
-    "input": "tell me something interesting about dogs",
-    "chat_history": [],
-    "intermediate_steps": [],
-}
-out = oracle.invoke(inputs)
-print(out)
+
+def run_snowflake(state: list):
+    # Extract the query from the state
+    tool_name = state["intermediate_steps"][-1].tool
+    tool_args = state["intermediate_steps"][-1].tool_input
+
+    # Get the query text
+    query = tool_args
+    if isinstance(tool_args, dict) and "__arg1" in tool_args:
+        query = tool_args["__arg1"]
+
+    print(f"snowflake_agent.generate_query_result(input='{query}')")
+
+    # Initialize the agent if not already done
+    snowflake_agent = SnowflakeAgent(os.environ.get("SNOWFLAKE_URI"))
+
+    # Run the query
+    result = snowflake_agent.generate_query_result(query)
+
+    # Check if visualization is needed
+    visualization_info = snowflake_agent.choose_visualization(query, result)
+    if visualization_info["visualization"] != "none":
+        visualization_code = snowflake_agent.generate_visualization_code(query)[
+            "visualization_code"
+        ]
+        result = f"{result}\n\nVisualization Code:\n{visualization_code}"
+
+    # Create action output
+    action_out = AgentAction(tool=tool_name, tool_input=tool_args, log=str(result))
+    return {"intermediate_steps": [action_out]}
 
 
 def run_oracle(state: list):
     print("run_oracle")
     print(f"intermediate_steps: {state['intermediate_steps']}")
-    out = oracle.invoke(state)
-    tool_name = out.tool_calls[0]["name"]
-    tool_args = out.tool_calls[0]["args"]
-    action_out = AgentAction(tool=tool_name, tool_input=tool_args, log="TBD")
-    return {"intermediate_steps": [action_out]}
+    try:
+        out = oracle.invoke(state)
+
+        # Check if tool_calls exists and is not empty
+        if hasattr(out, "tool_calls") and out.tool_calls:
+            tool_name = out.tool_calls[0]["name"]
+            tool_args = out.tool_calls[0]["args"]
+            action_out = AgentAction(tool=tool_name, tool_input=tool_args, log="TBD")
+            return {"intermediate_steps": [action_out]}
+        else:
+            # Default to final_answer if no tool calls are made
+            print("No tool calls found in LLM response, defaulting to final_answer")
+            action_out = AgentAction(
+                tool="final_answer",
+                tool_input={
+                    "introduction": "Error occurred",
+                    "research_steps": "The AI system encountered an error.",
+                    "main_body": "Unable to process your request due to a technical issue.",
+                    "conclusion": "Please try again with a different query.",
+                    "sources": "Internal system error log",
+                },
+                log="TBD",
+            )
+            return {"intermediate_steps": [action_out]}
+    except Exception as e:
+        print(f"Error in run_oracle: {str(e)}")
+        # Provide a fallback action when an error occurs
+        action_out = AgentAction(
+            tool="final_answer",
+            tool_input={
+                "introduction": "Error occurred",
+                "research_steps": "The AI system encountered an error.",
+                "main_body": f"Unable to process your request due to: {str(e)}",
+                "conclusion": "Please try again with a different query.",
+                "sources": "Internal system error log",
+            },
+            log="TBD",
+        )
+        return {"intermediate_steps": [action_out]}
 
 
-def router(state: list):
-    # return the tool name to use
-    if isinstance(state["intermediate_steps"], list):
+def router(state: AgentState):
+    # Check if intermediate_steps exists and is not empty
+    if isinstance(state["intermediate_steps"], list) and state["intermediate_steps"]:
         return state["intermediate_steps"][-1].tool
     else:
-        # if we output bad format go to final answer
-        print("Router invalid format")
+        # Default to final_answer if there's an issue
+        print("Router invalid format or empty intermediate steps")
         return "final_answer"
 
 
@@ -228,6 +337,7 @@ tool_str_to_func = {
     "search_pinecone": search_pinecone,
     "web_search": web_search,
     "final_answer": final_answer,
+    "snowflake_agent": snowflake_tool,
 }
 
 
@@ -242,61 +352,69 @@ def run_tool(state: list):
     return {"intermediate_steps": [action_out]}
 
 
-graph = StateGraph(AgentState)
+def invoke_graph(input: str):
+    graph = StateGraph(AgentState)
 
-graph.add_node("oracle", run_oracle)
-graph.add_node("search_pinecone", run_tool)
-graph.add_node("web_search", run_tool)
-graph.add_node("final_answer", run_tool)
+    graph.add_node("oracle", run_oracle)
+    graph.add_node("snowflake_agent", run_tool)
+    graph.add_node("search_pinecone", run_tool)
+    graph.add_node("web_search", run_tool)
+    graph.add_node("final_answer", run_tool)
 
-graph.set_entry_point("oracle")
+    graph.set_entry_point("oracle")
 
-graph.add_conditional_edges(
-    source="oracle",  # where in graph to start
-    path=router,  # function to determine which node is called
-)
+    graph.add_conditional_edges(
+        source="oracle",  # where in graph to start
+        path=router,  # function to determine which node is called
+    )
 
-# create edges from each tool back to the oracle
-for tool_obj in tools:
-    if tool_obj.name != "final_answer":
-        graph.add_edge(tool_obj.name, "oracle")
+    # create edges from each tool back to the oracle
+    for tool_obj in tools:
+        if tool_obj.name != "final_answer":
+            graph.add_edge(tool_obj.name, "oracle")
 
-# if anything goes to final answer, it must then move to END
-graph.add_edge("final_answer", END)
+    # if anything goes to final answer, it must then move to END
+    graph.add_edge("final_answer", END)
 
-runnable = graph.compile()
+    runnable = graph.compile()
+    with open("graph.md", "w") as f:
+        f.write(runnable.get_graph().draw_mermaid())
 
-oracle_out = runnable.invoke(
-    {
-        "input": "Write a report on risks faced by Nvidia in last few quarters",
-        "chat_history": [],
-    }
-)
+    oracle_out = runnable.invoke(
+        {
+            "input": input,
+            "chat_history": [],
+        }
+    )
+    return oracle_out
+
+
 # print(out)
 
 
 def build_report(output: dict):
+    output = output["intermediate_steps"][-1].tool_input
     research_steps = output["research_steps"]
     if type(research_steps) is list:
-        research_steps = "\n".join([f"- {r}" for r in research_steps])
+        research_steps = "\n\n".join([f"- {r}" for r in research_steps])
     sources = output["sources"]
     if type(sources) is list:
-        sources = "\n".join([f"- {s}" for s in sources])
+        sources = "\n\n".join([f"- {s}" for s in sources])
     return f"""
-INTRODUCTION
-------------
-{output["introduction"]}
+## INTRODUCTION
+---------------
+{output['introduction']}
 
-RESEARCH STEPS
---------------
+## RESEARCH STEPS
+------------------
 {research_steps}
 
-REPORT
-------
+## REPORT
+--------
 {output["main_body"]}
 
-CONCLUSION
-----------
+## CONCLUSION
+------------
 {output["conclusion"]}
 
 SOURCES
@@ -305,4 +423,11 @@ SOURCES
 """
 
 
-print(build_report(output=oracle_out["intermediate_steps"][-1].tool_input))
+if __name__ == "__main__":
+    print(
+        build_report(
+            invoke_graph(
+                "What was the trend of valuation metrics for Nvidia over past 4 quarters. Give analysis of trend and possible reasons for the trend."
+            )
+        )
+    )
