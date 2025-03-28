@@ -1,7 +1,8 @@
-import os
 import base64
-import streamlit as st
+import os
+
 from dotenv import load_dotenv
+import streamlit as st
 
 load_dotenv()
 FASTAPI_URL = os.getenv("FASTAPI_URL")
