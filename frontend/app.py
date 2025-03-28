@@ -104,20 +104,19 @@ if len(active_agent_names) > 0:
                 # Call the FastAPI endpoint to generate the research document
                 try:
                     response = requests.post(
-                        f"{FASTAPI_URL}/generate_research",
+                        f"{FASTAPI_URL}/chat",
                         json={
-                            "query": prompt,
-                            "active_agents": st.session_state.active_agents
+                            "message": prompt,
+                            "active_agents": [key for key, val in st.session_state.active_agents.items() if val]
                         },
                         timeout=120  # Increased timeout for complex queries
                     )
                     
                     if response.status_code == 200:
-                        result = response.json()
-                        research_document = result["research_document"]
+                        research_document = response.text
                         
                         # Check if there's a visualization included
-                        visualization_base64 = result.get("visualization")
+                        visualization_base64 = None
                         
                         # Store the research document in session state
                         st.session_state.research_document = research_document
@@ -139,8 +138,7 @@ if len(active_agent_names) > 0:
                             "is_markdown": True
                         }
                         
-                        if visualization_base64:
-                            message_data["visualization"] = visualization_base64
+                        
                             
                         st.session_state.messages.append(message_data)
                     else:
