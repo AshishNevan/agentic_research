@@ -2,9 +2,10 @@
 
 ## Links
 - [Google Codelabs](#)
-- [Frontend (Streamlit)](#)
-- [Backend (FastAPI)](#)
-- [GitHub Tasks](#)
+- [Frontend (Streamlit)](https://nvidia-insight.streamlit.app)
+- [Backend (FastAPI)](https://nevchris242-agentic-research.hf.space)
+- [GitHub Tasks](https://github.com/users/AshishNevan/projects/3)
+- [Demo Video](#)
 
 ## Architecture Diagram
 ```mermaid
