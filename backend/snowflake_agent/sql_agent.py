@@ -9,7 +9,7 @@ from langchain_community.utilities import SQLDatabase
 from langchain_core.prompts import ChatPromptTemplate
 from matplotlib import pyplot as plt
 
-from snowflake_agent.LLMManager import LLMManager
+from snowflake_agent.llm_manager import LLMManager
 
 load_dotenv("../../.env")
 
@@ -130,7 +130,7 @@ Recommend a visualization:""",
 
     def generate_visualization_code(self, user_query):
         """
-        Use LLM to generate visualization code based on the data and the visualization type
+        Use LLM to generate python code for visualization based on the data and the visualization type
         """
         results = self.generate_query_result(user_query)
         visualization_info = self.choose_visualization(user_query, results)
@@ -145,20 +145,21 @@ Recommend a visualization:""",
                 (
                     "system",
                     """
-            Generate Python code using matplotlib to create a {visualization_type} chart for the following data:
+            Generate Python code which can be executed on in python notebook (No Matplotlib GUI) to create a {visualization_type} chart for the following data:
     {results}
     
     The code should:
-    1. Create a visually appealing {visualization_type} chart
-    2. Include proper formatting (titles, labels, etc.)
-    3. Use appropriate colors and styling
-    4. Format numbers with commas for readability
-    5. Return only the raw Python code without any Markdown formatting, explanations, or comments
-    6. Do not wrap the code in triple backticks or any other formatting
-    7. Use plt.savefig() to save the image as a PNG file in the current directory and don't include '/' in the name of the file
-    8. Do not include plt.show() in the code
-    9. Generate multiple plots whenever possible.
-    10. Always try to use the original row/column names in the data.
+    1. Not create Matplotlib GUI
+    2. Create a visually appealing {visualization_type} chart
+    3. Include proper formatting (titles, labels, etc.)
+    4. Use appropriate colors and styling
+    5. Format numbers with commas for readability
+    6. Return only the raw Python code without any Markdown formatting, explanations, or comments
+    7. Do not wrap the code in triple backticks or any other formatting
+    8. Use plt.savefig() to save the image as a PNG file in the current directory and don't include '/' in the name of the file
+    9. Do not include plt.show() in the code
+    10. Generate multiple plots whenever possible.
+    11. Always try to use the original row/column names in the data.
     '''),
             ("human", '''
             Data: {results}

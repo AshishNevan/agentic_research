@@ -1,8 +1,9 @@
 import os
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from typing_extensions import Optional, TypedDict, Annotated, List, Union
+from typing_extensions import Optional, TypedDict, Annotated, List, Union, Literal
 from langchain_core.agents import AgentAction, AgentFinish
 from langchain_core.messages import BaseMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 import operator
 from langchain_core.tools import tool
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -12,6 +13,7 @@ from langgraph.graph import StateGraph, END
 from dotenv import load_dotenv
 from snowflake_agent.sql_agent import SnowflakeAgent
 from langchain_core.tools import BaseTool, Tool
+from langgraph.types import Command
 
 load_dotenv("../.env")
 client = TavilyClient(os.getenv("TAVILY_API_KEY"))
@@ -19,6 +21,8 @@ client = TavilyClient(os.getenv("TAVILY_API_KEY"))
 
 class AgentState(TypedDict):
     input: str
+    year: Annotated[Optional[int], "year"]
+    quarter: Annotated[Optional[int], "quarter"]
     chat_history: list[BaseMessage]
     visualization_code: str
     visualization_reasoning: str
@@ -65,13 +69,13 @@ def format_rag_contexts(matches: list):
 
 @tool("search_pinecone")
 def search_pinecone(
-    query: str,
-    year: Optional[str] = None,
-    quarter: Optional[str] = None,
+    query: Annotated[str, "search_pinecone_query"],
+    year: Annotated[Optional[str], "year"] = None,
+    quarter: Annotated[Optional[str], "quarter"] = None,
     top_k: int = 2,
 ) -> str:
     """
-    Search Pinecone for documents matching the query, optionally filtered by year and quarter.
+    Search vector database for Nvidia's Financial Reports matching the query, optionally filtered by year and quarter.
     """
     query_emb = embeddings.embed_query(query)
 
@@ -94,7 +98,7 @@ def search_pinecone(
         f"Raw Pinecone response: {response}"
     )  # for debugging. can be commented out in final
 
-    matches = response.get("matches", [])
+    matches = response.get("matches")
     if not matches:
         return "No relevant documents found in Pinecone."
 
@@ -106,7 +110,7 @@ def search_pinecone(
 
 
 @tool("web_search")
-def web_search(query: str):
+def web_search(query: Annotated[str, "web_search_query"]):
     """
     Perform a web search using the Tavily API and format the results.
 
@@ -117,7 +121,7 @@ def web_search(query: str):
     str: A formatted string containing the titles, URLs, and content of search results.
     """
     response = client.search(
-        query=query, max_results=3, time_range="week", include_answer="basic"
+        query=query, max_results=3, time_range="week", include_answer=True
     )
 
     results = response["results"]
@@ -132,7 +136,7 @@ snowflake_agent = SnowflakeAgent(os.environ.get("SNOWFLAKE_URI"))
 
 
 @tool("snowflake_agent")
-def snowflake_tool(query: str):
+def snowflake_tool(query: Annotated[str, "snowflake_query"]):
     """
     Performs a SQL query on the Snowflake database and formats the result.
     Args:
@@ -152,20 +156,18 @@ def snowflake_tool(query: str):
                 visualization["visualization_reasoning"],
             )
         )
-        result = f"\n\nSqlQuery result:{result}\n\nVisualization Code:\n{visualization['visualization_code']}\n\nVisualization Reasoning:{visualization['visualization_reasoning']}"
+        result = f"\n\nSqlQuery result:{result.get('output', result)}"
 
     return result
 
 
 @tool("final_answer")
 def final_answer(
-    introduction: str,
-    research_steps: str,
-    main_body: str,
-    conclusion: str,
-    sources: str,
-    visualization_code: str,
-    visualization_reasoning: str,
+    introduction: Annotated[str, "introduction"],
+    research_steps: Annotated[str, "research_steps"],
+    main_body: Annotated[str, "main_body"],
+    conclusion: Annotated[str, "conclusion"],
+    sources: Annotated[str, "sources"],
 ):
     """Returns a natural language response to the user in the form of a research
     report. There are several sections to this report, those are:
@@ -180,8 +182,6 @@ def final_answer(
     concise but sophisticated view on what was found.
     - `sources`: a bulletpoint list provided detailed sources for all information
     referenced during the research process
-    - `visualization_code`: python code for visualization
-    - `visualization_reasoning`: reasoning for the visualization
     """
     if isinstance(research_steps, list):
         research_steps = "\n".join([f"- {r}" for r in research_steps])
@@ -199,10 +199,15 @@ query, do NOT use that same tool with the same query again. Also, do NOT use
 any tool more than twice (ie, if the tool appears in the scratchpad twice, do
 not use it again).
 
-You should aim to run all the tools at least once to extract as much information as possible.
-Once you have collected plenty of information
-to answer the user's question in great detail(stored in the scratchpad) use the final_answer
-tool."""
+You should aim to collect information from a diverse range of sources before
+providing the answer to the user. Once you have collected plenty of information
+to answer the user's question (stored in the scratchpad) use the final_answer
+tool.
+
+Always include links and document metadata as bullet-pointed sources in the final report.
+If you did not find the relevant answer from any tool, mention that too.
+
+"""
 
 prompt = ChatPromptTemplate.from_messages(
     [
@@ -225,11 +230,11 @@ from pydantic import SecretStr
 #     api_key=SecretStr(os.environ["GEMINI_API_KEY"]),
 # )
 llm = ChatOpenAI(
-    model="gpt-4o",
+    model="gpt-4o-mini",
     api_key=SecretStr(os.environ["OPENAI_API_KEY"]),
 )
 
-tools: list[BaseTool] = [
+tools: Annotated[list[BaseTool], "tools"] = [
     snowflake_tool,
     web_search,
     search_pinecone,
@@ -249,46 +254,16 @@ oracle = (
     | llm.bind_tools(tools, tool_choice="any")
 )
 
-
-# def run_snowflake(state: AgentState):
-#     # Extract the query from the state
-#     tool_name = state["intermediate_steps"][-1].tool
-#     tool_args = state["intermediate_steps"][-1].tool_input
-
-#     # Get the query text
-#     query = tool_args
-#     if isinstance(tool_args, dict) and "__arg1" in tool_args:
-#         query = tool_args["__arg1"]
-
-#     print(f"snowflake_agent.generate_query_result(input='{query}')")
-
-#     # Run the query
-#     result = snowflake_agent.generate_query_result(query)
-
-#     # Check if visualization is needed
-#     visualization_info = snowflake_agent.choose_visualization(query, result)
-#     if visualization_info["visualization"] != "none":
-#         visualization_code = snowflake_agent.generate_visualization_code(query)[
-#             "visualization_code"
-#         ]
-#         state["visualization_code"] = visualization_code
-#         state["visualization_reasoning"] = visualization_info["visualization_reasoning"]
-
-# # Create action output
-# action_out = AgentAction(tool=tool_name, tool_input=tool_args, log=str(result))
-# return {"intermediate_steps": [action_out]}
-
-
 def run_oracle(state: AgentState):
     print("run_oracle")
     print(f"intermediate_steps: {state['intermediate_steps']}")
     try:
-        out = oracle.invoke(state)
+        output = oracle.invoke(state)
 
         # Check if tool_calls exists and is not empty
-        if hasattr(out, "tool_calls") and out.tool_calls:
-            tool_name = out.tool_calls[0]["name"]
-            tool_args = out.tool_calls[0]["args"]
+        if hasattr(output, "tool_calls") and output.tool_calls:
+            tool_name = output.tool_calls[0]["name"]
+            tool_args = output.tool_calls[0]["args"]
             action_out = AgentAction(tool=tool_name, tool_input=tool_args, log="TBD")
             return {"intermediate_steps": [action_out]}
         else:
@@ -347,12 +322,12 @@ def run_tool(state: AgentState):
     tool_args = state["intermediate_steps"][-1].tool_input
     print(f"{tool_name}.invoke(input={tool_args})")
     # run tool
-    out = tool_str_to_func[tool_name].invoke(input=tool_args)
-    action_out = AgentAction(tool=tool_name, tool_input=tool_args, log=str(out))
+    output = tool_str_to_func[tool_name].invoke(input=tool_args)
+    action_out = AgentAction(tool=tool_name, tool_input=tool_args, log=str(output))
     return {"intermediate_steps": [action_out]}
 
 
-def invoke_graph(input: str):
+def invoke_graph(input: str, year: Optional[int], quarter: Optional[int]):
     graph = StateGraph(AgentState)
 
     graph.add_node("oracle", run_oracle)
@@ -383,12 +358,14 @@ def invoke_graph(input: str):
     oracle_out = runnable.invoke(
         {
             "input": input,
+            "year": year,
+            "quarter": quarter,
             "chat_history": [],
             "intermediate_steps": [],
         }
     )
-    final_step = oracle_out["intermediate_steps"][-1]
-    final_input = final_step.tool_input if isinstance(final_step, AgentAction) else {}
+    # final_step = oracle_out["intermediate_steps"][-1]
+    # final_input = final_step.tool_input if isinstance(final_step, AgentAction) else {}
     return oracle_out, viz
 
 
@@ -398,7 +375,7 @@ def invoke_graph(input: str):
 def build_report(output: dict) -> str:
     """
     Build a report from the output of the graph.
-    Returns a tuple of the report and the visualization code.
+    Returns a report string.
     """
     output = output["intermediate_steps"][-1].tool_input
     research_steps = output["research_steps"]
@@ -431,8 +408,9 @@ SOURCES
 
 
 if __name__ == "__main__":
-    out, viz = invoke_graph(
-        "What was the trend of valuation metrics for Nvidia over past 4 quarters. Give analysis of trend and possible reasons for the trend."
+    out, viz = invoke_graph("What was the trend of valuation metrics for Nvidia over past 4 quarters. Give analysis of trend and possible reasons for the trend along with charts",None,None,
     )
-    report, visualization_code = build_report(out)
-    exec(visualization_code)
+    report = build_report(out)
+    print(len(viz))
+    for code, reasoning in viz:
+        exec(code)
