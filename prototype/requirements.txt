@@ -6,4 +6,10 @@ langsmith
 sentence_transformers
 langchain-huggingface
 langchain-pinecone
+langchain-google-genai
+langchain
+langchain-community
+snowflake-sqlalchemy
+langchain-openai
+# langchain-google-vertexai
 markdown
