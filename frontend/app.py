@@ -1,120 +1,269 @@
-import streamlit as st
 import os
-from dotenv import load_dotenv
 import base64
-
-# Import custom agents
-# from backend.snowflake_agent.sql_agent import SnowflakeAgent
-# from backend.rag_agent import RAGAgent
-# from backend.web_search_agent import WebSearchAgent
-
+import streamlit as st
+from dotenv import load_dotenv
 
 load_dotenv()
+FASTAPI_URL = os.getenv("FASTAPI_URL")
 
 # Initialize session state variables
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "research_document" not in st.session_state:
     st.session_state.research_document = None
+if "active_agents" not in st.session_state:
+    st.session_state.active_agents = {
+        "snowflake_agent": False,
+        "rag_agent": False,
+        "web_search_agent": False
+    }
 
-# Page configuration
-st.set_page_config(page_title="NVIDIA Research Assistant", layout="wide")
+st.set_page_config(page_title="LangGraph NVIDIA Research Agent", layout="wide")
 
 # Sidebar
 with st.sidebar:
-    st.title("NVIDIA Research Assistant")
+    st.title("LangGraph NVIDIA Research Agent")
     st.markdown("This assistant uses multiple agents to generate research documents based on NVIDIA data:")
-    st.markdown("- **Snowflake Agent**: Analyzes NVIDIA valuation measures")
-    st.markdown("- **RAG Agent**: Processes NVIDIA 10-K/Q reports (2022-2025)")
-    st.markdown("- **Web Search Agent**: Retrieves latest information")
-    
-    # Add configuration options here
-    model_option = st.selectbox(
-        "Select LLM Model",
-        ["gpt-3.5-turbo", "gpt-4", "claude-3-opus"]
+    st.markdown("- **Snowflake Agent**: Analyzes NVIDIA valuation measures, generates summary and visualization charts")
+    st.markdown("- **RAG Agent**: Processes NVIDIA 10-K/10-Q reports (2022-2025) with hybrid search using Pinecone")
+    st.markdown("- **Web Search Agent**: Retrieves real-time data from web")
+
+    st.subheader("Select Active Agents")
+
+    st.session_state.active_agents["snowflake_agent"] = st.checkbox(
+        "Snowflake Agent (Valuation Measures)", 
+        value=st.session_state.active_agents["snowflake_agent"],
+        help="Analyzes NVIDIA valuation measures, generates summary and visualization charts using Snowflake database"
+    )
+
+    st.session_state.active_agents["rag_agent"] = st.checkbox(
+        "RAG Agent (10-K/Q Reports)", 
+        value=st.session_state.active_agents["rag_agent"],
+        help="Processes NVIDIA 10-K/Q reports from 2022-2025"
     )
     
-    # Add a clear conversation button
+    st.session_state.active_agents["web_search_agent"] = st.checkbox(
+        "Web Search Agent (Tavily)", 
+        value=st.session_state.active_agents["web_search_agent"],
+        help="Retrieves latest information from the web using Tavily"
+    )
+
     if st.button("Clear Conversation"):
         st.session_state.messages = []
         st.session_state.research_document = None
         st.experimental_rerun()
 
 # Main chat interface
-st.title("NVIDIA Research Assistant")
+st.title("LangGraph NVIDIA Research Assistant")
 
-# Initialize agents and orchestrator
-@st.cache_resource
-def load_agents():
-    # snowflake_agent = SnowflakeAgent(os.environ.get('SNOWFLAKE_URI'))
-    # rag_agent = RAGAgent()
-    # web_search_agent = WebSearchAgent()
-    # orchestrator = ResearchOrchestrator(
-    #     snowflake_agent=snowflake_agent,
-    #     rag_agent=rag_agent,
-    #     web_search_agent=web_search_agent,
-    #     model_name=model_option
-    # )
-    orchestrator = None #remove this once you add the agents to the system
-    return orchestrator
+# Function to create a download link for the markdown file
+def get_download_link(file_content, file_name):
+    """
+    Generates a link allowing the user to download a file from the app.
+    :param file_content: The content of the file to download.
+    :param file_name: The name of the file to download.
+    :return: A link to download the file.
+    """
+    b64 = base64.b64encode(file_content.encode()).decode()
+    href = f'<a href="data:file/markdown;base64,{b64}" download="{file_name}">Download {file_name}</a>'
+    return href
 
-orchestrator = load_agents()
-
-# Display chat history
+# --- Chat Interface ---
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         if message["role"] == "assistant" and "is_markdown" in message and message["is_markdown"]:
             st.markdown(message["content"])
+            if "visualization" in message:
+                st.image(base64.b64decode(message["visualization"]), use_column_width=True)
         else:
             st.write(message["content"])
 
-# Function to create a download link for the markdown file
-def get_download_link(markdown_text, filename="research_document.md"):
-    """Generate a download link for the markdown text"""
-    b64 = base64.b64encode(markdown_text.encode()).decode()
-    href = f'<a href="data:file/markdown;base64,{b64}" download="{filename}">Download Research Document</a>'
-    return href
+# Show which agents are currently active
+active_agent_names = [name for name, is_active in st.session_state.active_agents.items() if is_active]
+if active_agent_names:
+    st.info(f"Active agents: {', '.join(active_agent_names)}")
+else:
+    st.warning("No agents selected. Please enable at least one agent in the sidebar.")
 
-# Chat input
-if prompt := st.chat_input("Ask a question about NVIDIA..."):
-    # Add user message to chat history
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    
-    # Display user message
-    with st.chat_message("user"):
-        st.write(prompt)
-    
-    # Display assistant response with a spinner while processing
-    with st.chat_message("assistant"):
-        with st.spinner("Generating research document..."):
-            # Call the orchestrator to generate the research document
-            research_document = orchestrator.generate_research(prompt)
-            
-            # Store the research document in session state
-            st.session_state.research_document = research_document
-            
-            # Display the markdown content
-            st.markdown(research_document)
-            
-            # Add download button for the research document
-            st.markdown(get_download_link(research_document), unsafe_allow_html=True)
-    
-    # Add assistant response to chat history
-    st.session_state.messages.append({
-        "role": "assistant", 
-        "content": research_document,
-        "is_markdown": True
-    })
+
+# Chat input - only enable if at least one agent is active
+if len(active_agent_names) > 0:
+    if prompt := st.chat_input("Ask a question about NVIDIA..."):
+        # Add user message to chat history
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        
+        # Display user message
+        with st.chat_message("user"):
+            st.write(prompt)
+        
+        # Display assistant response with a spinner while processing
+        with st.chat_message("assistant"):
+            with st.spinner(f"Generating research document using {', '.join(active_agent_names)} agents..."):
+                # Call the FastAPI endpoint to generate the research document
+                try:
+                    response = requests.post(
+                        f"{API_BASE_URL}/generate_research",
+                        json={
+                            "query": prompt,
+                            "active_agents": st.session_state.active_agents
+                        },
+                        timeout=120  # Increased timeout for complex queries
+                    )
+                    
+                    if response.status_code == 200:
+                        result = response.json()
+                        research_document = result["research_document"]
+                        
+                        # Check if there's a visualization included
+                        visualization_base64 = result.get("visualization")
+                        
+                        # Store the research document in session state
+                        st.session_state.research_document = research_document
+                        
+                        # Display the markdown content
+                        st.markdown(research_document)
+
+                        # Display visualization if available
+                        if visualization_base64:
+                            st.image(base64.b64decode(visualization_base64), use_column_width=True)
+                        
+                        # Add download button for the research document
+                        st.markdown(get_download_link(research_document, "Research_Document.md"), unsafe_allow_html=True)
+                        
+                        # Add assistant response to chat history with visualization if available
+                        message_data = {
+                            "role": "assistant", 
+                            "content": research_document,
+                            "is_markdown": True
+                        }
+                        
+                        if visualization_base64:
+                            message_data["visualization"] = visualization_base64
+                            
+                        st.session_state.messages.append(message_data)
+                    else:
+                        st.error(f"Error: {response.status_code} - {response.text}")
+                        st.session_state.messages.append({
+                            "role": "assistant", 
+                            "content": f"Error: Unable to generate research document. Status code: {response.status_code}",
+                            "is_markdown": False
+                        })
+                except Exception as e:
+                    st.error(f"Error connecting to API: {str(e)}")
+                    st.session_state.messages.append({
+                        "role": "assistant", 
+                        "content": f"Error: Unable to connect to the research API. {str(e)}",
+                        "is_markdown": False
+                    })
+else:
+    st.chat_input("Please select at least one agent to continue...", disabled=True)
 
 # Display download button for the latest research document if it exists
 if st.session_state.research_document:
     st.sidebar.markdown("### Download Latest Research")
-    st.sidebar.markdown(get_download_link(st.session_state.research_document), unsafe_allow_html=True)
-    
-    # Option to download as PDF (requires additional libraries)
-    st.sidebar.markdown("### Advanced Export Options")
-    if st.sidebar.button("Generate PDF"):
-        with st.sidebar.spinner("Generating PDF..."):
-            # This is a placeholder for PDF generation functionality
-            # You would need to implement this using libraries like weasyprint or pdfkit
-            st.sidebar.success("PDF generation feature coming soon!")
+    st.sidebar.markdown(get_download_link(st.session_state.research_document, "Research_Document.md"), unsafe_allow_html=True)
+
+
+
+#     user_input = st.chat_input("Ask the agent a question...")
+
+#     if user_input:
+#         st.session_state.chat_history.append({"role": "user", "content": user_input})
+#         with st.spinner("Thinking..."):
+#             response = requests.post(f"{FASTAPI_URL}/chat", json={
+#                 "query": user_input,
+#                 "chat_history": st.session_state.chat_history
+#             })
+#             data = response.json()
+#             agent_reply = data.get("response", "No response from agent.")
+#             st.session_state.chat_history.append({"role": "agent", "content": agent_reply})
+
+
+
+#     st.subheader("📥 Download Latest Report")
+#     if st.button("Download Markdown Report"):
+#         download_response = requests.get(f"{FASTAPI_URL}/download-report")
+#         if download_response.status_code == 200:
+#             st.download_button(
+#                 label="📄 Download Markdown File",
+#                 data=download_response.content,
+#                 file_name="nvidia_report.md",
+#                 mime="text/markdown"
+#             )
+#         else:
+#             st.error("Failed to download report.")
+
+# Tabs for different tools
+# tab1, tab2, tab3 = st.tabs(["🔍 Search Pinecone", "🌐 Web Search", "💬 Chat Agent"])
+
+# # --- Search Pinecone Tool ---
+# with tab1:
+#     st.header("🔍 Pinecone Document Search")
+#     query = st.text_input("Enter your query")
+#     year = st.text_input("Year (optional)")
+#     quarter = st.text_input("Quarter (optional)")
+#     top_k = st.slider("Top K Results", 1, 10, 5)
+
+#     if st.button("Search Pinecone"):
+#         response = requests.post(f"{FASTAPI_URL}/run-tool", json={
+#             "tool": "search_pinecone",
+#             "query": query,
+#             "year": year,
+#             "quarter": quarter,
+#             "top_k": top_k
+#         })
+#         result = response.json()
+#         st.subheader("Results")
+#         st.text(result.get("result", "No result returned"))
+
+# # --- Web Search Tool ---
+# with tab2:
+#     st.header("🌐 Web Search Tool")
+#     web_query = st.text_input("Enter your web search query")
+#     if st.button("Search Web"):
+#         response = requests.post(f"{FASTAPI_URL}/run-tool", json={
+#             "tool": "web_search",
+#             "query": web_query
+#         })
+#         result = response.json()
+#         st.subheader("Web Results")
+#         st.text(result.get("result", "No result returned"))
+
+# # --- Chat Interface ---
+# with tab3:
+#     st.header("💬 Chat with the Research Agent")
+
+#     if "chat_history" not in st.session_state:
+#         st.session_state.chat_history = []
+
+#     user_input = st.chat_input("Ask the agent a question...")
+
+#     if user_input:
+#         st.session_state.chat_history.append({"role": "user", "content": user_input})
+#         with st.spinner("Thinking..."):
+#             response = requests.post(f"{FASTAPI_URL}/chat", json={
+#                 "query": user_input,
+#                 "chat_history": st.session_state.chat_history
+#             })
+#             data = response.json()
+#             agent_reply = data.get("response", "No response from agent.")
+#             st.session_state.chat_history.append({"role": "agent", "content": agent_reply})
+
+#     for msg in st.session_state.chat_history:
+#         if msg["role"] == "user":
+#             st.chat_message("user").write(msg["content"])
+#         else:
+#             st.chat_message("assistant").write(msg["content"])
+
+#     st.subheader("📥 Download Latest Report")
+#     if st.button("Download Markdown Report"):
+#         download_response = requests.get(f"{FASTAPI_URL}/download-report")
+#         if download_response.status_code == 200:
+#             st.download_button(
+#                 label="📄 Download Markdown File",
+#                 data=download_response.content,
+#                 file_name="nvidia_report.md",
+#                 mime="text/markdown"
+#             )
+#         else:
+#             st.error("Failed to download report.")
