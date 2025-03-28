@@ -50,6 +50,16 @@ with st.sidebar:
         help="Retrieves latest information from the web using Tavily"
     )
 
+    # Add year/quarter filters
+    st.subheader("Report Filters")
+    if 'year' not in st.session_state:
+        st.session_state.year = ""
+    if 'quarter' not in st.session_state:
+        st.session_state.quarter = ""
+        
+    st.session_state.year = st.selectbox("Fiscal Year", options=["2022", "2023", "2024", "2025"], index=1)
+    st.session_state.quarter = st.selectbox("Fiscal Quarter", options=["Q1", "Q2", "Q3", "Q4"], index=0)
+
     if st.button("Clear Conversation"):
         st.session_state.messages = []
         st.session_state.research_document = None
@@ -107,7 +117,9 @@ if len(active_agent_names) > 0:
                         f"{FASTAPI_URL}/chat",
                         json={
                             "message": prompt,
-                            "active_agents": [key for key, val in st.session_state.active_agents.items() if val]
+                            "active_agents": [key for key, val in st.session_state.active_agents.items() if val],
+                            "year": st.session_state.year,
+                            "quarter": st.session_state.quarter
                         },
                         timeout=120  # Increased timeout for complex queries
                     )
