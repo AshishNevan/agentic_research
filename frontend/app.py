@@ -2,6 +2,7 @@ import base64
 import os
 
 from dotenv import load_dotenv
+import requests
 import streamlit as st
 
 load_dotenv()
@@ -52,7 +53,7 @@ with st.sidebar:
     if st.button("Clear Conversation"):
         st.session_state.messages = []
         st.session_state.research_document = None
-        st.experimental_rerun()
+        st.rerun()
 
 # Main chat interface
 st.title("LangGraph NVIDIA Research Assistant")
@@ -103,7 +104,7 @@ if len(active_agent_names) > 0:
                 # Call the FastAPI endpoint to generate the research document
                 try:
                     response = requests.post(
-                        f"{API_BASE_URL}/generate_research",
+                        f"{FASTAPI_URL}/generate_research",
                         json={
                             "query": prompt,
                             "active_agents": st.session_state.active_agents
