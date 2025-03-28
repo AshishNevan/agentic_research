@@ -21,8 +21,12 @@ class AgentState(TypedDict):
     input: str
     chat_history: list[BaseMessage]
     visualization_code: str
+    visualization_reasoning: str
     snowflake_result: str
     intermediate_steps: Annotated[list[tuple[AgentAction, str]], operator.add]
+
+
+viz = []
 
 
 # define a function to transform intermediate_steps from list
@@ -127,38 +131,28 @@ def web_search(query: str):
 snowflake_agent = SnowflakeAgent(os.environ.get("SNOWFLAKE_URI"))
 
 
-def snowflake_node(state: AgentState):
-    # Extract the query from the state
-    query = state["input"]
-
-    # Generate query result
-    result = snowflake_agent.generate_query_result(query)
-
-    # Optionally, generate visualization code
-    visualization_info = snowflake_agent.choose_visualization(query, result)
-    if visualization_info["visualization"] != "none":
-        visualization_code = snowflake_agent.generate_visualization_code(query)
-        state["visualization_code"] = visualization_code
-
-    # Update the state with the result
-    state["snowflake_result"] = result
-    return state
-
-
 @tool("snowflake_agent")
 def snowflake_tool(query: str):
     """
-    Executes SQL queries and generates visualizations using Snowflake database.
+    Performs a SQL query on the Snowflake database and formats the result.
+    Args:
+    query (str): The SQL query to execute.
+    Returns:
+    str: A formatted string containing the result of the SQLQuery result, python code for visualization and reasoning for the visualization.
     """
     result = snowflake_agent.generate_query_result(query)
 
     # Check if visualization is needed
     visualization_info = snowflake_agent.choose_visualization(query, result)
     if visualization_info["visualization"] != "none":
-        visualization_code = snowflake_agent.generate_visualization_code(query)[
-            "visualization_code"
-        ]
-        result = f"{result}\n\nVisualization Code:\n{visualization_code}"
+        visualization = snowflake_agent.generate_visualization_code(query)
+        viz.append(
+            (
+                visualization["visualization_code"],
+                visualization["visualization_reasoning"],
+            )
+        )
+        result = f"\n\nSqlQuery result:{result}\n\nVisualization Code:\n{visualization['visualization_code']}\n\nVisualization Reasoning:{visualization['visualization_reasoning']}"
 
     return result
 
@@ -170,6 +164,8 @@ def final_answer(
     main_body: str,
     conclusion: str,
     sources: str,
+    visualization_code: str,
+    visualization_reasoning: str,
 ):
     """Returns a natural language response to the user in the form of a research
     report. There are several sections to this report, those are:
@@ -184,6 +180,8 @@ def final_answer(
     concise but sophisticated view on what was found.
     - `sources`: a bulletpoint list provided detailed sources for all information
     referenced during the research process
+    - `visualization_code`: python code for visualization
+    - `visualization_reasoning`: reasoning for the visualization
     """
     if isinstance(research_steps, list):
         research_steps = "\n".join([f"- {r}" for r in research_steps])
@@ -227,13 +225,13 @@ from pydantic import SecretStr
 #     api_key=SecretStr(os.environ["GEMINI_API_KEY"]),
 # )
 llm = ChatOpenAI(
-    model="gpt-3.5-turbo",
+    model="gpt-4o",
     api_key=SecretStr(os.environ["OPENAI_API_KEY"]),
 )
 
 tools: list[BaseTool] = [
-    web_search,
     snowflake_tool,
+    web_search,
     search_pinecone,
     final_answer,
 ]
@@ -252,38 +250,36 @@ oracle = (
 )
 
 
-def run_snowflake(state: list):
-    # Extract the query from the state
-    tool_name = state["intermediate_steps"][-1].tool
-    tool_args = state["intermediate_steps"][-1].tool_input
+# def run_snowflake(state: AgentState):
+#     # Extract the query from the state
+#     tool_name = state["intermediate_steps"][-1].tool
+#     tool_args = state["intermediate_steps"][-1].tool_input
 
-    # Get the query text
-    query = tool_args
-    if isinstance(tool_args, dict) and "__arg1" in tool_args:
-        query = tool_args["__arg1"]
+#     # Get the query text
+#     query = tool_args
+#     if isinstance(tool_args, dict) and "__arg1" in tool_args:
+#         query = tool_args["__arg1"]
 
-    print(f"snowflake_agent.generate_query_result(input='{query}')")
+#     print(f"snowflake_agent.generate_query_result(input='{query}')")
 
-    # Initialize the agent if not already done
-    snowflake_agent = SnowflakeAgent(os.environ.get("SNOWFLAKE_URI"))
+#     # Run the query
+#     result = snowflake_agent.generate_query_result(query)
 
-    # Run the query
-    result = snowflake_agent.generate_query_result(query)
+#     # Check if visualization is needed
+#     visualization_info = snowflake_agent.choose_visualization(query, result)
+#     if visualization_info["visualization"] != "none":
+#         visualization_code = snowflake_agent.generate_visualization_code(query)[
+#             "visualization_code"
+#         ]
+#         state["visualization_code"] = visualization_code
+#         state["visualization_reasoning"] = visualization_info["visualization_reasoning"]
 
-    # Check if visualization is needed
-    visualization_info = snowflake_agent.choose_visualization(query, result)
-    if visualization_info["visualization"] != "none":
-        visualization_code = snowflake_agent.generate_visualization_code(query)[
-            "visualization_code"
-        ]
-        result = f"{result}\n\nVisualization Code:\n{visualization_code}"
-
-    # Create action output
-    action_out = AgentAction(tool=tool_name, tool_input=tool_args, log=str(result))
-    return {"intermediate_steps": [action_out]}
+# # Create action output
+# action_out = AgentAction(tool=tool_name, tool_input=tool_args, log=str(result))
+# return {"intermediate_steps": [action_out]}
 
 
-def run_oracle(state: list):
+def run_oracle(state: AgentState):
     print("run_oracle")
     print(f"intermediate_steps: {state['intermediate_steps']}")
     try:
@@ -345,7 +341,7 @@ tool_str_to_func = {
 }
 
 
-def run_tool(state: list):
+def run_tool(state: AgentState):
     # use this as helper function so we repeat less code
     tool_name = state["intermediate_steps"][-1].tool
     tool_args = state["intermediate_steps"][-1].tool_input
@@ -388,15 +384,22 @@ def invoke_graph(input: str):
         {
             "input": input,
             "chat_history": [],
+            "intermediate_steps": [],
         }
     )
-    return oracle_out
+    final_step = oracle_out["intermediate_steps"][-1]
+    final_input = final_step.tool_input if isinstance(final_step, AgentAction) else {}
+    return oracle_out, viz
 
 
 # print(out)
 
 
-def build_report(output: dict):
+def build_report(output: dict) -> str:
+    """
+    Build a report from the output of the graph.
+    Returns a tuple of the report and the visualization code.
+    """
     output = output["intermediate_steps"][-1].tool_input
     research_steps = output["research_steps"]
     if type(research_steps) is list:
@@ -428,10 +431,8 @@ SOURCES
 
 
 if __name__ == "__main__":
-    print(
-        build_report(
-            invoke_graph(
-                "What was the trend of valuation metrics for Nvidia over past 4 quarters. Give analysis of trend and possible reasons for the trend."
-            )
-        )
+    out, viz = invoke_graph(
+        "What was the trend of valuation metrics for Nvidia over past 4 quarters. Give analysis of trend and possible reasons for the trend."
     )
+    report, visualization_code = build_report(out)
+    exec(visualization_code)
