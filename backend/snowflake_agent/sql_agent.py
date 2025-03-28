@@ -25,13 +25,19 @@ Consider the following:
 - Provide explanations for any assumptions made during query generation.
 - Always try to keep the original row/column names in the result.
 - The table name is "nvidia_valuation_measures"
-Generate the SQL query for the following question:
+- Please structure the output in the following format:
+```
+SQL Query:
+<sql_query>
+Output:
+<output>
+```
 """
 
 
 class SnowflakeAgent:
     def __init__(
-        self, db_uri, model_provider="openai", model_name="gpt-3.5-turbo", temperature=0
+        self, db_uri, model_provider="openai", model_name="gpt-4o", temperature=0
     ):
         self.db = SQLDatabase.from_uri(db_uri)
 
@@ -44,7 +50,7 @@ class SnowflakeAgent:
         self.agent_executor = create_sql_agent(
             llm=self.llm,
             db=self.db,
-            agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+            agent_type=AgentType.OPENAI_FUNCTIONS,
             verbose=True,
         )
         self.llm_manager = LLMManager()
@@ -53,6 +59,8 @@ class SnowflakeAgent:
         result = self.agent_executor.invoke(
             {"input": f"System:{PROMPT}, Question:{user_query}"}
         )
+        if isinstance(result["output"], list):
+            result["output"] = "\n".join(result["output"])
         return result
 
     def choose_visualization(self, user_query, results):
