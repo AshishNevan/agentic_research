@@ -3,3 +3,12 @@ python-dotenv~=1.0.1
 uvicorn
 pinecone
 google-generativeai==0.8.4
+snowflake-connector-python[pandas]
+requests_html
+yahoo_fin
+langchain
+langchain-community
+snowflake-sqlalchemy
+langchain-openai
+langgraph
+matplotlib
