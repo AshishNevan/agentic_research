@@ -17,3 +17,7 @@ langsmith
 sentence_transformers
 langchain-huggingface
 langchain-pinecone
+langchain-google-genai
+langchain-experimental
+python-dotenv
+matplotlib
