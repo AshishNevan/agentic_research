@@ -24,7 +24,7 @@ Consider the following:
 - If the user's question is not related to the database, respond with "NOT_RELEVANT".
 - Provide explanations for any assumptions made during query generation.
 - Always try to keep the original row/column names in the result.
-
+- The table name is "nvidia_valuation_measures"
 Generate the SQL query for the following question:
 """
 
@@ -189,8 +189,3 @@ if __name__ == "__main__":
     generated_code = agent.generate_visualization_code(query)["visualization_code"]
     print(generated_code)
     exec(generated_code)
-agent = SnowflakeAgent(os.environ.get("SNOWFLAKE_URI"))
-query = "Compare all the valuation metrics with each other in 2025 Q1"
-generated_code = agent.generate_visualization_code(query)["visualization_code"]
-print(generated_code)
-exec(generated_code)
