@@ -1,12 +1,13 @@
-from langchain_community.agent_toolkits.sql.base import create_sql_agent
-from langchain_community.utilities import SQLDatabase
-from langchain.chat_models import init_chat_model
-from langchain.agents.agent_types import AgentType
-from langchain_core.prompts import ChatPromptTemplate
-from dotenv import load_dotenv
-from matplotlib import pyplot as plt
 import os
 import re
+
+from dotenv import load_dotenv
+from langchain.agents.agent_types import AgentType
+from langchain.chat_models import init_chat_model
+from langchain_community.agent_toolkits.sql.base import create_sql_agent
+from langchain_community.utilities import SQLDatabase
+from langchain_core.prompts import ChatPromptTemplate
+from matplotlib import pyplot as plt
 
 from LLMManager import LLMManager
 

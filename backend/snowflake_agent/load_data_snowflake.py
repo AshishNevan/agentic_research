@@ -1,10 +1,11 @@
-import pandas as pd
-from yahoo_fin import stock_info as si
 from datetime import datetime
+import os
+
+from dotenv import load_dotenv
+import pandas as pd
 import snowflake.connector
 from snowflake.connector.pandas_tools import write_pandas
-import os
-from dotenv import load_dotenv
+from yahoo_fin import stock_info as si
 
 load_dotenv()
 
