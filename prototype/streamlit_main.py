@@ -7,7 +7,7 @@ FASTAPI_URL = "http://localhost:8000"
 st.set_page_config(page_title="LangGraph Agent", layout="wide")
 
 # Tabs for different tools
-tab1, tab2, tab3 = st.tabs(["🔍 Search Pinecone", "🌐 Web Search", "💬 Chat Agent"])
+tab1, tab2, tab3 = st.tabs(["🔍 Search Pinecone", "🌐 Web Search", "💬 Resarch Agent"])
 
 # --- Search Pinecone Tool ---
 with tab1:

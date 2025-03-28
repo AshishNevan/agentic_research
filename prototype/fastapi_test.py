@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from pydantic import BaseModel
 from fastapi.responses import FileResponse
 from typing import List, Dict
-from oracle_test import compile_graph, search_pinecone, web_search  
+from oracle_test import compile_graph  
 from pinecone_rag_tool import *
 from tavily_agent import tavily_agent
 import markdown
@@ -43,7 +43,7 @@ def run_tool(req: ToolRequest):
         #     verbose=True
         # )
 
-        result = tavily_agent.invoke({"query": req.query})
+        result = tavily_agent.invoke({"input": req.query})
     else:
         result = f"You ran a custom tool with query: {req.query}"
 
