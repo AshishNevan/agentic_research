@@ -23,6 +23,7 @@ Consider the following:
 - If there is not enough information to write a SQL query, respond with "NOT_ENOUGH_INFO".
 - If the user's question is not related to the database, respond with "NOT_RELEVANT".
 - Provide explanations for any assumptions made during query generation.
+- Always try to keep the original row/column names in the result.
 
 Generate the SQL query for the following question:
 """
@@ -119,8 +120,10 @@ Recommend a visualization:'''),
     4. Format numbers with commas for readability
     5. Return only the raw Python code without any Markdown formatting, explanations, or comments
     6. Do not wrap the code in triple backticks or any other formatting
-    7. Use plt.savefig() to save the image as a PNG file in the current directory
+    7. Use plt.savefig() to save the image as a PNG file in the current directory and don't include '/' in the name of the file
     8. Do not include plt.show() in the code
+    9. Generate multiple plots whenever possible.
+    10. Always try to use the original row/column names in the data.
     '''),
             ("human", '''
             Data: {results}
@@ -138,7 +141,7 @@ Recommend a visualization:'''),
 
 # Create an instance of SnowflakeAgent
 agent = SnowflakeAgent(os.environ.get('SNOWFLAKE_URI'))
-query = "How is the P/E ratio trending over the past 4 quarters?"
+query = "Compare all the valuation metrics with each other in 2025 Q1"
 generated_code = agent.generate_visualization_code(query)['visualization_code']
 print(generated_code)
 exec(generated_code)
