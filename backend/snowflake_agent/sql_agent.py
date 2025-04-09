@@ -37,7 +37,7 @@ Output:
 
 class SnowflakeAgent:
     def __init__(
-        self, db_uri, model_provider="openai", model_name="gpt-4o", temperature=0
+        self, db_uri, model_provider="openai", model_name="gpt-4o-mini", temperature=0
     ):
         self.db = SQLDatabase.from_uri(db_uri)
 
@@ -149,17 +149,19 @@ Recommend a visualization:""",
     {results}
     
     The code should:
+    0. Save visualizations named using uuid
     1. Not create Matplotlib GUI
-    2. Create a visually appealing {visualization_type} chart
-    3. Include proper formatting (titles, labels, etc.)
-    4. Use appropriate colors and styling
-    5. Format numbers with commas for readability
-    6. Return only the raw Python code without any Markdown formatting, explanations, or comments
-    7. Do not wrap the code in triple backticks or any other formatting
-    8. Use plt.savefig() to save the image as a PNG file in the current directory and don't include '/' in the name of the file
-    9. Do not include plt.show() in the code
-    10. Generate multiple plots whenever possible.
-    11. Always try to use the original row/column names in the data.
+    2. Use only matplotlib.use('agg')
+    3. Create a visually appealing {visualization_type} chart
+    4. Include proper formatting (titles, labels, etc.)
+    5. Use appropriate colors and styling
+    6. Format numbers with commas for readability
+    7. Return only the raw Python code without any Markdown formatting, explanations, or comments
+    8. Do not wrap the code in triple backticks or any other formatting
+    9. Use plt.savefig() to save the image as a PNG file in the current directory and don't include '/' in the name of the file
+    10. Do not include plt.show() in the code
+    11. Generate multiple plots whenever possible.
+    12. Always try to use the original row/column names in the data.
     '''),
             ("human", '''
             Data: {results}
