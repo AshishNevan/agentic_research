@@ -38,7 +38,7 @@ async def root():
 
 
 @app.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest = Depends()):
+async def chat(request: ChatRequest = Depends()):
     # Get the response from the graph
     if not (
         request.snowflake_agent or request.websearch_agent or request.pinecone_agent

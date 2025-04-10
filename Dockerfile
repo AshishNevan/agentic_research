@@ -10,6 +10,7 @@ RUN useradd -m -u 1000 user
 USER user
 ENV HOME=/home/user \
     PATH=/home/user/.local/bin:$PATH
+ENV MPLCONFIGDIR=$HOME/temp
 WORKDIR $HOME/backend
 COPY --chown=user ./backend $HOME/backend
 CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "7860"]
