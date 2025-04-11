@@ -5,7 +5,7 @@
 - [Google Codelabs](https://codelabs-preview.appspot.com/?file_id=16qMm5yUQzbz1FciKKSyXi8J2G2Up5jF7UyNY3O-FjUo#0)
 - [Frontend (Streamlit)](https://nvidia-insight.streamlit.app)
 - [Backend (FastAPI)](https://nevchris242-agentic-research.hf.space)
-- [GitHub Tasks](https://github.com/users/AshishNevan/projects/3)
+- [GitHub Tasks](https://github.com/orgs/DAMG7245-Team-2/projects/2)
 - [Demo Video]()
 
 ## Architecture Diagram
